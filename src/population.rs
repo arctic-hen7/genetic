@@ -250,18 +250,15 @@ impl<I: Individual> Population<I> {
         self.population.len()
     }
 
-    /// Gets an iterator of all the individuals in the population, sorted by their fitness. Each
-    /// individual's fitness is precomputed, and can be fetched with the shadow method
-    /// [`IndividualRef::fitness`].
+    /// Gets an iterator of all the individuals in the population, sorted by their fitness (worst
+    /// to best). Each individual's fitness is precomputed, and can be fetched with the shadow
+    /// method [`IndividualRef::fitness`].
     ///
     /// This iterator is double-ended, and can be reversed to produce the individuals in order of
-    /// fitness from worst to best.
+    /// fitness from best to worst.
     pub fn individuals(&self) -> impl DoubleEndedIterator<Item = IndividualRef<'_, '_, I>> {
         self.population
             .iter()
-            // We have the individuals sorted from worst to best, but produce them best to worst by
-            // default, and the user can reverse this again if needed
-            .rev()
             .map(|individual| IndividualRef::new(individual, &self.fitness_cache))
     }
 
@@ -269,7 +266,7 @@ impl<I: Individual> Population<I> {
     /// all.
     pub fn best_individual(&self) -> Option<IndividualRef<'_, '_, I>> {
         self.population
-            .first()
+            .last()
             .map(|individual| IndividualRef::new(individual, &self.fitness_cache))
     }
 
