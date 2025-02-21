@@ -1,3 +1,4 @@
+use crate::crosser::Crosser;
 use crate::mutator::{Parameter, ParameterMutation};
 use generic_array::{ArrayLength, GenericArray};
 use rayon::iter::{
@@ -17,6 +18,10 @@ pub trait Individual: Clone + PartialEq + Eq + Hash + Send + Sync + 'static {
     /// The number of parameters this individual has. This is used in working with arrays of
     /// [`Parameter`]s.
     type N: ArrayLength;
+    /// The crosser this individual uses. See [`Crosser`] for details. Most of the time, this will
+    /// be [`NullCrosser`] if your simulation's crossing behaviour does not need to change as it
+    /// progresses.
+    type Crosser: Crosser<Self>;
 
     /// Generates a random individual.
     ///
@@ -24,6 +29,9 @@ pub trait Individual: Clone + PartialEq + Eq + Hash + Send + Sync + 'static {
     /// custom [`Generator`] may be specified at the simulation level and this can be left
     /// unimplemented.
     fn generate() -> Self;
+
+    /// Produces an instance of the crosser.
+    fn crosser() -> Self::Crosser;
 
     /// Computes the *fitness* of the individual, which will be maximised by the genetic algorithm
     /// to converge on the best possible solution. Typically, this is the objective function being
@@ -37,8 +45,10 @@ pub trait Individual: Clone + PartialEq + Eq + Hash + Send + Sync + 'static {
     fn fitness(&self) -> Self::Fitness;
 
     /// Crosses this individual with another, producing a new individual that is a combination of
-    /// the two "parents".
-    fn cross(&self, other: &Self) -> Self;
+    /// the two "parents". This takes a reference to this individual's associated crosser, which is
+    /// used to track crossing-related statistics or metrics across generations, allowing crossing
+    /// behaviour to change as a simulation progresses.
+    fn cross(&self, other: &Self, crosser: &Self::Crosser) -> Self;
 
     /// Mutates this individual from the given shape of a mutation.
     fn mutate(&mut self, shape: GenericArray<ParameterMutation, Self::N>);

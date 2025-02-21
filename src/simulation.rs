@@ -14,18 +14,18 @@ use std::{
     marker::PhantomData,
 };
 
+/// A simulation using a genetic algorithm to solve an optimisation problem.
 pub struct Simulation<
     I: Individual,
     G: Generator<I>,
     P: PairSelector<I>,
-    C: Crosser<I>,
     M: Mutator<I>,
     U: PopulationUpdater<I>,
     S: StopCriterion<I>,
 > {
     generator: G,
     pair_selector: P,
-    crosser: C,
+    crosser: I::Crosser,
     mutator: M,
     population_updater: U,
     stop_criterion: S,
@@ -38,11 +38,10 @@ impl<
         I: Individual,
         G: Generator<I>,
         P: PairSelector<I> + Any,
-        C: Crosser<I> + Any,
         M: Mutator<I> + Any,
         U: PopulationUpdater<I>,
         S: StopCriterion<I> + Any,
-    > Simulation<I, G, P, C, M, U, S>
+    > Simulation<I, G, P, M, U, S>
 {
     /// Creates a new simulation. This will require specifying the [`Individual`] being simulated
     /// over, and then the `.with_*` methods can be called in a builder-pattern to set everything
@@ -51,7 +50,6 @@ impl<
         I1,
         SimpleGenerator, // Actually valid
         NullPairSelector,
-        NullCrosser,
         NullMutator,
         DirectPopulationUpdater, // Actually valid
         NullStopCriterion,
@@ -59,7 +57,7 @@ impl<
         Simulation {
             generator: SimpleGenerator,
             pair_selector: NullPairSelector,
-            crosser: NullCrosser,
+            crosser: I1::crosser(),
             mutator: NullMutator,
             population_updater: DirectPopulationUpdater,
             stop_criterion: NullStopCriterion,
@@ -72,8 +70,8 @@ impl<
 
     /// Runs the simulation.
     ///
-    /// Before calling this, a [`PairSelector`], [`Crosser`], and [`Mutator`] must have been set
-    /// up, along with some [`StopCriterion`].
+    /// Before calling this, a [`PairSelector`] and [`Mutator`] must have been set up, along with
+    /// some [`StopCriterion`].
     pub fn run(mut self) -> Result<Vec<(I, I::Fitness)>, SimulationError> {
         // Check that all mandatory fields are set
         let size = self
@@ -106,7 +104,7 @@ impl<
             let mut new_population = Vec::new();
             for (parent1, parent2) in pairs {
                 // Cross the parents and mutate to produce a child solution
-                let mut child = self.crosser.cross(&parent1, &parent2);
+                let mut child = parent1.cross(&parent2, &self.crosser);
                 let mutation_pattern = self.mutator.mutate(&i_shape);
                 child.mutate(mutation_pattern);
                 new_population.push(child);
@@ -162,7 +160,7 @@ impl<
     pub fn with_selector<P2: PairSelector<I>>(
         self,
         pair_selector: P2,
-    ) -> Simulation<I, G, P2, C, M, U, S> {
+    ) -> Simulation<I, G, P2, M, U, S> {
         Simulation {
             generator: self.generator,
             pair_selector,
@@ -177,26 +175,9 @@ impl<
         }
     }
 
-    /// Sets the [`Crosser`] to use for the simulation, which will control how solutions are
-    /// crossed/mated. This method must be called at some stage before [`Self::run`].
-    pub fn with_crosser<C2: Crosser<I>>(self, crosser: C2) -> Simulation<I, G, P, C2, M, U, S> {
-        Simulation {
-            generator: self.generator,
-            pair_selector: self.pair_selector,
-            crosser,
-            mutator: self.mutator,
-            population_updater: self.population_updater,
-            stop_criterion: self.stop_criterion,
-
-            initial_population_size: self.initial_population_size,
-
-            _ty: self._ty,
-        }
-    }
-
     /// Sets the [`Mutator`] to use for the simulation, which will control how solutions are
     /// mutated. This method must be called at some stage before [`Self::run`].
-    pub fn with_mutator<M2: Mutator<I>>(self, mutator: M2) -> Simulation<I, G, P, C, M2, U, S> {
+    pub fn with_mutator<M2: Mutator<I>>(self, mutator: M2) -> Simulation<I, G, P, M2, U, S> {
         Simulation {
             generator: self.generator,
             pair_selector: self.pair_selector,
@@ -217,7 +198,7 @@ impl<
     pub fn with_updater<U2: PopulationUpdater<I>>(
         self,
         population_updater: U2,
-    ) -> Simulation<I, G, P, C, M, U2, S> {
+    ) -> Simulation<I, G, P, M, U2, S> {
         Simulation {
             generator: self.generator,
             pair_selector: self.pair_selector,
@@ -242,7 +223,7 @@ impl<
     pub fn with_stop_criterion<S2: StopCriterion<I>>(
         self,
         stop_criterion: S2,
-    ) -> Simulation<I, G, P, C, M, U, S2> {
+    ) -> Simulation<I, G, P, M, U, S2> {
         Simulation {
             generator: self.generator,
             pair_selector: self.pair_selector,
@@ -261,10 +242,9 @@ impl<
         I: Individual,
         G: Generator<I>,
         P: PairSelector<I> + 'static,
-        C: Crosser<I> + 'static,
         M: Mutator<I> + 'static,
         U: PopulationUpdater<I> + 'static,
-    > Simulation<I, G, P, C, M, U, NullStopCriterion>
+    > Simulation<I, G, P, M, U, NullStopCriterion>
 {
     /// Stops the simulation after the given maximum number of generations. If you'd like to use a
     /// different [`StopCriterion`], call [`Self::with_stop_criterion`] and then
@@ -273,7 +253,7 @@ impl<
     pub fn max_generations(
         self,
         max_generations: usize,
-    ) -> Simulation<I, G, P, C, M, U, MaxGenerationsStopCriterion> {
+    ) -> Simulation<I, G, P, M, U, MaxGenerationsStopCriterion> {
         self.with_stop_criterion(MaxGenerationsStopCriterion::new(max_generations))
     }
 }
@@ -281,11 +261,10 @@ impl<
         I: Individual,
         G: Generator<I>,
         P: PairSelector<I>,
-        C: Crosser<I>,
         M: Mutator<I>,
         U: PopulationUpdater<I>,
         S: StopCriterion<I>,
-    > Simulation<I, G, P, C, M, U, S>
+    > Simulation<I, G, P, M, U, S>
 {
     /// Regardless of what the other stop criterion says, stop the simulation after the given
     /// number of generations has passed. This is equivalent to calling
@@ -294,7 +273,7 @@ impl<
     pub fn or_max_generations(
         self,
         max_generations: usize,
-    ) -> Simulation<I, G, P, C, M, U, OrStopCriterion<I, S, MaxGenerationsStopCriterion>> {
+    ) -> Simulation<I, G, P, M, U, OrStopCriterion<I, S, MaxGenerationsStopCriterion>> {
         Simulation {
             generator: self.generator,
             pair_selector: self.pair_selector,

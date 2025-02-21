@@ -1,9 +1,10 @@
 use crate::population::{Individual, Population};
 
+/// A crosser, which is respponsible not for directly crossing individuals, but for tracking
+/// cross-generational statistics *related* to crossing. Actual crossing is highly
+/// individual-specific, and is handled by the [`Individual::cross`] method, which takes a
+/// reference to a [`Crosser`] directly (so it can observe those statistics).
 pub trait Crosser<I: Individual> {
-    /// Crosses the two given individuals to produce a new individual.
-    fn cross(&self, a: &I, b: &I) -> I;
-
     /// This method is called at the *end* of each generation, to allow a crosser to track
     /// cross-generational statistics. It is provided with the new population, along with the
     /// previous generation.
@@ -15,14 +16,9 @@ pub trait Crosser<I: Individual> {
     fn process_generation(&mut self, population: &Population<I>, previous_generation: &Vec<I>);
 }
 
-/// A crosser that does nothing. Because crossers are mandatory, if this is used in a final
-/// simulation, an error will occur.
+/// A crosser that tracks nothing. For simulations whose crossing behaviour remains the same across
+/// generations, this is the default.
 pub(crate) struct NullCrosser;
 impl<I: Individual> Crosser<I> for NullCrosser {
-    fn cross(&self, _: &I, _: &I) -> I {
-        unimplemented!()
-    }
-    fn process_generation(&mut self, _: &Population<I>, _: &Vec<I>) {
-        unimplemented!()
-    }
+    fn process_generation(&mut self, _: &Population<I>, _: &Vec<I>) {}
 }
