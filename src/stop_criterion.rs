@@ -44,7 +44,7 @@ pub trait StopCriterion<I: Individual> {
 
 /// A stop criterion that never stops. Because stop criteria are mandatory, if this is used in a
 /// final simulation, an error will occur.
-pub(crate) struct NullStopCriterion;
+pub struct NullStopCriterion;
 impl<I: Individual> StopCriterion<I> for NullStopCriterion {
     fn should_stop(&mut self, _: &Population<I>, _: &Vec<I>) -> bool {
         unimplemented!()

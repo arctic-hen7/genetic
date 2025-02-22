@@ -23,7 +23,7 @@ pub trait PopulationUpdater<I: Individual> {
 
 /// A population updater that simply carries the new individuals over to the next generation. This
 /// should be used in algorithms with no elitism.
-pub(crate) struct DirectPopulationUpdater;
+pub struct DirectPopulationUpdater;
 impl<I: Individual> PopulationUpdater<I> for DirectPopulationUpdater {
     fn update_population(
         &mut self,

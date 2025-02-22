@@ -31,7 +31,7 @@ pub trait PairSelector<I: Individual + 'static> {
 
 /// A pair selector that selects the same individual twice. Because pair selectors are mandatory,
 /// if this is used in a final simulation, an error will occur.
-pub(crate) struct NullPairSelector;
+pub struct NullPairSelector;
 impl<I: Individual + 'static> PairSelector<I> for NullPairSelector {
     fn select(
         &mut self,

@@ -60,7 +60,7 @@ pub enum ParameterMutation {
 
 /// A mutator that does nothing. Because mutators are mandatory, if this is used in a final
 /// simulation, an error will occur.
-pub(crate) struct NullMutator;
+pub struct NullMutator;
 impl<I: Individual> Mutator<I> for NullMutator {
     fn mutate(&self, _: &GenericArray<Parameter, I::N>) -> GenericArray<ParameterMutation, I::N> {
         unimplemented!()

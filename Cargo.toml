@@ -8,3 +8,7 @@ generic-array = "1.2.0"
 ordered-float = "5.0.0"
 rayon = "1.10.0"
 thiserror = "2.0.11"
+
+[lib]
+name = "genetic"
+path = "src/lib.rs"

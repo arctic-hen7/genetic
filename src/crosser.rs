@@ -18,7 +18,7 @@ pub trait Crosser<I: Individual> {
 
 /// A crosser that tracks nothing. For simulations whose crossing behaviour remains the same across
 /// generations, this is the default.
-pub(crate) struct NullCrosser;
+pub struct NullCrosser;
 impl<I: Individual> Crosser<I> for NullCrosser {
     fn process_generation(&mut self, _: &Population<I>, _: &Vec<I>) {}
 }
