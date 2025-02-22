@@ -1,6 +1,4 @@
-use crate::crosser::Crosser;
-use crate::mutator::{Parameter, ParameterMutation};
-use generic_array::{ArrayLength, GenericArray};
+use rand::Rng;
 use rayon::iter::{
     IndexedParallelIterator, IntoParallelRefIterator, ParallelExtend, ParallelIterator,
 };
@@ -9,29 +7,31 @@ use std::collections::{HashMap, HashSet};
 use std::hash::Hash;
 use std::ops::Deref;
 
+use crate::Tracker;
+
 /// An individual in a genetic algorithm.
-pub trait Individual: Clone + PartialEq + Eq + Hash + Send + Sync + 'static {
+pub trait Individual:
+    std::fmt::Debug + Clone + PartialEq + Eq + Hash + Send + Sync + 'static
+{
     /// The type of the fitness value of an individual, which must be able to be compared with the
     /// fitnesses of others (ideally very efficiently). Typically, this will be an [`f64`] or
     /// similar.
     type Fitness: Ord + Copy + Send + Sync;
-    /// The number of parameters this individual has. This is used in working with arrays of
-    /// [`Parameter`]s.
-    type N: ArrayLength;
-    /// The crosser this individual uses. See [`Crosser`] for details. Most of the time, this will
-    /// be [`NullCrosser`] if your simulation's crossing behaviour does not need to change as it
-    /// progresses.
-    type Crosser: Crosser<Self>;
+    /// The tracker this individual uses. See [`Tracker`] for details. Most of the time, this will
+    /// be [`NullTracker`] if your simulation's crossing/mutation behaviour does not need to change
+    /// as the simulation progresses.
+    type Tracker: Tracker<Self> + Send + Sync;
 
     /// Generates a random individual.
     ///
     /// Note: if population-level invariants should be preserved during the generation process, a
     /// custom [`Generator`] may be specified at the simulation level and this can be left
     /// unimplemented.
-    fn generate() -> Self;
+    fn generate(rng: &mut impl Rng) -> Self;
 
-    /// Produces an instance of the crosser.
-    fn crosser() -> Self::Crosser;
+    /// Produces an instance of the tracker. This will be called once, at the start of the
+    /// simulation.
+    fn tracker() -> Self::Tracker;
 
     /// Computes the *fitness* of the individual, which will be maximised by the genetic algorithm
     /// to converge on the best possible solution. Typically, this is the objective function being
@@ -45,23 +45,30 @@ pub trait Individual: Clone + PartialEq + Eq + Hash + Send + Sync + 'static {
     fn fitness(&self) -> Self::Fitness;
 
     /// Crosses this individual with another, producing a new individual that is a combination of
-    /// the two "parents". This takes a reference to this individual's associated crosser, which is
-    /// used to track crossing-related statistics or metrics across generations, allowing crossing
-    /// behaviour to change as a simulation progresses.
-    fn cross(&self, other: &Self, crosser: &Self::Crosser) -> Self;
+    /// the two "parents". This takes a reference to the tracker we've instantiated to follow the
+    /// simulation and compute cross-generational statistics, which allows modifying crossing
+    /// behaviour as the simulation progresses.
+    fn cross(&self, other: &Self, tracker: &Self::Tracker, rng: &mut impl Rng) -> Self;
 
-    /// Mutates this individual from the given shape of a mutation.
-    fn mutate(&mut self, shape: GenericArray<ParameterMutation, Self::N>);
-
-    /// Returns this shape of the individual so mutators can generate a mutation for it without
-    /// knowing further details. See [`MutationShape`].
-    fn shape() -> GenericArray<Parameter, Self::N>;
+    /// Mutates this individual in-place to maintain diversity in the population.
+    ///
+    /// It's very common to use the provided [`Tracker`] here to do things like alter the frequency
+    /// of mutations as the simulation goes on to balance between "exploration" of the solution
+    /// space and "exploitation" of the good solutions we've found.
+    fn mutate(&mut self, tracker: &Self::Tracker, rng: &mut impl Rng);
 }
 
 /// A generator that produces a population of individuals, which is used to start a simulation.
 pub trait Generator<I: Individual> {
     /// Generates the given number of individuals.
-    fn generate(&self, size: usize) -> Vec<I>;
+    ///
+    /// This method is provided a random number generator, and implementors should be careful to
+    /// use it deterministically (it will be seeded deterministically by the caller, but `rayon`
+    /// does not always split tasks deterministically, and work-stealing can be problematic, so
+    /// patterns like assigning generator to each individual, or ideally a number to each
+    /// individual, can help). In general, generation will be done in sequence, but in the rare
+    /// cases where it isn't, bear this in mind.
+    fn generate(&self, size: usize, rng: &mut impl Rng) -> Vec<I>;
 }
 
 /// A [`Generator`] for any individual that generates a population of the given size by generating
@@ -70,8 +77,9 @@ pub trait Generator<I: Individual> {
 /// small populations, you should implement a custom generator.
 pub struct SimpleGenerator;
 impl<I: Individual> Generator<I> for SimpleGenerator {
-    fn generate(&self, size: usize) -> Vec<I> {
-        (0..size).map(|_| I::generate()).collect()
+    fn generate(&self, size: usize, rng: &mut impl Rng) -> Vec<I> {
+        // Sequential generation to ensure deterministic RNG use
+        (0..size).map(|_| I::generate(rng)).collect()
     }
 }
 
@@ -126,8 +134,8 @@ impl<I: Individual> FitnessCache<I> {
         // a reference to `self.inner`
         let skip_indices = individuals
             .iter()
-            .filter(|i| self.inner.contains_key(i))
             .enumerate()
+            .filter(|(_, i)| self.inner.contains_key(i))
             .map(|(idx, _)| idx)
             .collect::<HashSet<_>>();
 
@@ -141,81 +149,6 @@ impl<I: Individual> FitnessCache<I> {
         self.inner.par_extend(iter);
     }
 }
-
-// pub struct Population<I: Individual> {
-//     /// The current population of individuals.
-//     population: Vec<I>,
-//     /// Whether or not the population is ordered by fitness, to prevent multiple reorderings of the
-//     /// same list.
-//     is_ordered: bool,
-// }
-// impl<I: Individual> Population<I> {
-//     pub fn new(population: Vec<Individual<N>>, fitness_fn: FitnessFn<F, N>) -> Self {
-//         Self {
-//             population,
-//             is_ordered: false,
-//             fitness_fn,
-//             fitness_cache: HashMap::new(),
-//         }
-//     }
-//
-//     /// Replaces the current population with a new one (which is assumed to be unordered by fitness).
-//     pub fn replace_population(&mut self, new_population: Vec<Individual<N>>) {
-//         self.population = new_population;
-//         self.is_ordered = false;
-//     }
-//
-//     /// Returns the given individual's fitness, fetching it from the cache if possible or computing
-//     /// it if not.
-//     pub fn fitness(&mut self, individual: &Individual<N>) -> F {
-//         Self::fitness_from_cache(individual, &mut self.fitness_cache, &self.fitness_fn)
-//     }
-//
-//     /// Orders the population by fitness, if needed (if it hasn't been changed since it was last
-//     /// sorted, this will do nothing).
-//     pub fn sort_by_fitness(&mut self) {
-//         if !self.is_ordered {
-//             self.population.sort_by_key(|individual| {
-//                 self.fitness_cache
-//                     .get(individual)
-//                     .copied()
-//                     .unwrap_or_else(|| (self.fitness_fn)(individual))
-//             });
-//         }
-//     }
-//
-//     /// Converts the population into a sorted list of individuals (by fitness) with their
-//     /// fitnesses.
-//     pub fn into_sorted_with_fitness(mut self) -> Vec<(Individual<N>, F)> {
-//         self.sort_by_fitness();
-//         self.population
-//             .into_iter()
-//             .map(|individual| (self.fitness_cache[&individual], individual))
-//             .map(|(f, i)| (i, f))
-//             .collect()
-//     }
-//
-//     /// Gets the individual with the greatest fitness, returning their fitness as well. This will
-//     /// return [`None`] if there are no individuals in the population. If there are multiple
-//     /// best individuals, this will return the first one encountered (which should be assumed to be
-//     /// a random one, as other parts of the system may reorder the underlying population
-//     /// arbitrarily).
-//     ///
-//     /// This takes a mutable reference because it computes the fitnesses of individuals in the
-//     /// population, and thereby mutates the cache.
-//     pub fn best_individual(&mut self) -> Option<(&Individual<N>, F)> {
-//         let mut best = None;
-//         for individual in &self.population {
-//             let fitness =
-//                 Self::fitness_from_cache(individual, &mut self.fitness_cache, &self.fitness_fn);
-//             if best.map_or(true, |(_, best_fitness)| fitness > best_fitness) {
-//                 best = Some((individual, fitness))
-//             }
-//         }
-//
-//         best
-//     }
-// }
 
 /// A container for the population in a simulation, including a cache of the fitnesses of all
 /// individuals. References to this will be passed to different parts of the system, and they can
@@ -256,15 +189,23 @@ impl<I: Individual> Population<I> {
     ///
     /// This iterator is double-ended, and can be reversed to produce the individuals in order of
     /// fitness from best to worst.
-    pub fn individuals(&self) -> impl DoubleEndedIterator<Item = IndividualRef<'_, '_, I>> {
+    pub fn individuals(&self) -> impl DoubleEndedIterator<Item = IndividualRef<'_, I>> {
         self.population
             .iter()
             .map(|individual| IndividualRef::new(individual, &self.fitness_cache))
     }
 
+    /// Gets the individual at the given position in the list of individuals, ordered from worst to
+    /// best by their fitnesses.
+    pub fn individual_at(&self, idx: usize) -> Option<IndividualRef<'_, I>> {
+        self.population
+            .get(idx)
+            .map(|individual| IndividualRef::new(individual, &self.fitness_cache))
+    }
+
     /// Returns the best individual in the population, if the population has any individuals at
     /// all.
-    pub fn best_individual(&self) -> Option<IndividualRef<'_, '_, I>> {
+    pub fn best_individual(&self) -> Option<IndividualRef<'_, I>> {
         self.population
             .last()
             .map(|individual| IndividualRef::new(individual, &self.fitness_cache))
@@ -291,6 +232,7 @@ impl<I: Individual> Population<I> {
     /// ahead of time, in which case [`Self::register_and_sort_other`] may be helpful.
     pub fn replace(&mut self, mut new_individuals: Vec<I>) -> Vec<I> {
         self.fitness_cache.register_all(&new_individuals);
+
         new_individuals.sort_by_key(|i| self.fitness_cache.get_fitness(i).unwrap());
 
         std::mem::replace(&mut self.population, new_individuals)
@@ -325,15 +267,15 @@ impl<I: Individual> Population<I> {
 /// A reference to an [`Individual`] that shadows the fitness function to avoid recomputing it
 /// unnecessarily. This dereferences to the underlying individual, so can be used as if it were
 /// that.
-pub struct IndividualRef<'i, 'f, I: Individual> {
+pub struct IndividualRef<'a, I: Individual> {
     /// The individual we're referencing.
-    inner: &'i I,
+    inner: &'a I,
     /// A fitness cache, which *must* include the fitness of the individual we're referencing.
-    fitness_cache: &'f FitnessCache<I>,
+    fitness_cache: &'a FitnessCache<I>,
 }
-impl<'i, 'f, I: Individual> IndividualRef<'i, 'f, I> {
+impl<'a, I: Individual> IndividualRef<'a, I> {
     /// Creates a new reference to the given individual, using the given fitness cache.
-    pub(crate) fn new(inner: &'i I, fitness_cache: &'f FitnessCache<I>) -> Self {
+    pub(crate) fn new(inner: &'a I, fitness_cache: &'a FitnessCache<I>) -> Self {
         debug_assert!(fitness_cache.get_fitness(inner).is_some());
 
         Self {
@@ -346,7 +288,7 @@ impl<'i, 'f, I: Individual> IndividualRef<'i, 'f, I> {
         self.fitness_cache.get_fitness(self.inner).unwrap()
     }
 }
-impl<'i, 'f, I: Individual> Deref for IndividualRef<'i, 'f, I> {
+impl<'a, I: Individual> Deref for IndividualRef<'a, I> {
     type Target = I;
 
     fn deref(&self) -> &Self::Target {

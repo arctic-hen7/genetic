@@ -14,6 +14,9 @@ pub trait StopCriterion<I: Individual> {
     /// [`Population`], so [`Population::fitness`] can be used cheaply to get their fitnesses
     /// (without needing any additional computation, so parallelism is *not* necessary).
     /// Additionally, the old members will be sorted *from worst fitness to best*.
+    ///
+    /// Note that stop criteria generally don't need random number generation, though if yours
+    /// does, you can always maintain your own internally.
     fn should_stop(&mut self, population: &Population<I>, old_individuals: &Vec<I>) -> bool;
 
     /// Combines this stop criterion with another one in a logical OR (the resulting criterion will

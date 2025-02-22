@@ -1,4 +1,5 @@
 use crate::population::{Individual, Population};
+use rand::Rng;
 
 /// A trait for systems that control how a population updates from one generation to the next.
 /// Simple genetic algorithms will simply replace the old generation with the new one, though often
@@ -18,6 +19,7 @@ pub trait PopulationUpdater<I: Individual> {
         &mut self,
         new_individuals: Vec<I>,
         population: &mut Population<I>,
+        rng: &mut impl Rng,
     ) -> Vec<I>;
 }
 
@@ -29,6 +31,7 @@ impl<I: Individual> PopulationUpdater<I> for DirectPopulationUpdater {
         &mut self,
         new_individuals: Vec<I>,
         population: &mut Population<I>,
+        _rng: &mut impl Rng,
     ) -> Vec<I> {
         population.replace(new_individuals)
     }

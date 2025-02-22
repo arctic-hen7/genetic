@@ -1,3 +1,6 @@
+use rand::Rng;
+use rayon::iter::{IntoParallelIterator, ParallelBridge, ParallelIterator};
+
 use crate::population::{Individual, IndividualRef, Population};
 
 /// A trait for systems that select mating pairs from a population. In a genetic algorithm, these
@@ -13,10 +16,17 @@ pub trait PairSelector<I: Individual + 'static> {
     ///
     /// This method will be called at the start of every generation, so cross-generational
     /// statistics may be tracked that way.
-    fn select(
+    ///
+    /// This method is provided a random number generator, and implementors should be careful to
+    /// use it deterministically (it will be seeded deterministically by the caller, but `rayon`
+    /// does not always split tasks deterministically, and work-stealing can be problematic, so
+    /// patterns like assigning generator to each individual, or ideally a number to each
+    /// individual, can help).
+    fn select<'p>(
         &mut self,
-        population: &Population<I>,
-    ) -> impl Iterator<Item = (IndividualRef<'_, '_, I>, IndividualRef<'_, '_, I>)>;
+        population: &'p Population<I>,
+        rng: &mut impl Rng,
+    ) -> impl ParallelIterator<Item = (IndividualRef<'p, I>, IndividualRef<'p, I>)>;
 
     /// This method is called at the *end* of each generation, to allow a selector to track
     /// cross-generational statistics. It is provided with the new population, along with the
@@ -33,15 +43,16 @@ pub trait PairSelector<I: Individual + 'static> {
 /// if this is used in a final simulation, an error will occur.
 pub struct NullPairSelector;
 impl<I: Individual + 'static> PairSelector<I> for NullPairSelector {
-    fn select(
+    fn select<'p>(
         &mut self,
-        _population: &Population<I>,
-    ) -> impl Iterator<Item = (IndividualRef<'_, '_, I>, IndividualRef<'_, '_, I>)> {
+        _population: &'p Population<I>,
+        _rng: &mut impl Rng,
+    ) -> impl ParallelIterator<Item = (IndividualRef<'p, I>, IndividualRef<'p, I>)> {
         unimplemented!();
 
         // Need this for type hints
         #[allow(unreachable_code)]
-        std::iter::empty()
+        std::iter::empty().par_bridge().into_par_iter()
     }
     fn process_generation(&mut self, _: &Population<I>, _: &Vec<I>) {
         unimplemented!()

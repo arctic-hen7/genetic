@@ -4,10 +4,13 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-generic-array = "1.2.0"
-ordered-float = "5.0.0"
+rand = "0.9.0"
+rand_xoshiro = "0.7.0"
 rayon = "1.10.0"
 thiserror = "2.0.11"
+
+[dev-dependencies]
+ordered-float = "5.0.0"
 
 [lib]
 name = "genetic"
