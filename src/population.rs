@@ -287,6 +287,10 @@ impl<'a, I: Individual> IndividualRef<'a, I> {
     pub fn fitness(&self) -> I::Fitness {
         self.fitness_cache.get_fitness(self.inner).unwrap()
     }
+    /// Extracts the inner individual by cloning it.
+    pub fn into_inner(&self) -> I {
+        self.inner.clone()
+    }
 }
 impl<'a, I: Individual> Deref for IndividualRef<'a, I> {
     type Target = I;

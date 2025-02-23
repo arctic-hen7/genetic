@@ -2,6 +2,7 @@ pub mod error;
 mod pair_selector;
 mod population;
 mod population_updater;
+pub mod selectors;
 mod simulation;
 mod stop_criterion;
 mod tracker;

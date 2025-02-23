@@ -36,3 +36,62 @@ impl<I: Individual> PopulationUpdater<I> for DirectPopulationUpdater {
         population.replace(new_individuals)
     }
 }
+
+/// Updates the population by preserving a fixed number of "elites" --- the best performers ---
+/// from the previous generation. This can do so by either replacing some random individuals in the
+/// new population with those elites, or by explicitly replacing the worst performers with them.
+pub struct StaticElitistUpdater {
+    /// The number of elites to survive from generation to generation.
+    num_elites: usize,
+    /// Whether or not to replace only the worst individuals in the new generation with the elites,
+    /// or to replace some random individuals with the elites. The former approach involves
+    /// more computation, but generally yields much better results.
+    remove_worst: bool,
+}
+impl StaticElitistUpdater {
+    /// Creates a new [`StaticElitistUpdater`] that maintains the given number of elites through
+    /// the generations by replacing random individuals in the next generation with them.
+    pub fn new_random(num_elites: usize) -> Self {
+        Self {
+            num_elites,
+            remove_worst: false,
+        }
+    }
+    /// Creates a new [`StaticElitistUpdater`] that maintains the given number of elites through
+    /// the generations by replacing the worst performers in the next generation with them.
+    ///
+    /// This is a bit more computationally expensive than [`Self::new_random`], but will generally
+    /// produce better results.
+    pub fn new_worst(num_elites: usize) -> Self {
+        Self {
+            num_elites,
+            remove_worst: true,
+        }
+    }
+}
+impl<I: Individual> PopulationUpdater<I> for StaticElitistUpdater {
+    fn update_population(
+        &mut self,
+        mut new_individuals: Vec<I>,
+        population: &mut Population<I>,
+        _rng: &mut impl Rng,
+    ) -> Vec<I> {
+        if self.remove_worst {
+            population.register_and_sort_other(&mut new_individuals);
+        }
+
+        // Truncate the first `num_elites` individuals and replace them with the best from the
+        // original population (if we sorted, we're replacing the worst, otherwise the best)
+        for (idx, individual) in population
+            .individuals()
+            .skip(population.size() - self.num_elites)
+            .enumerate()
+        {
+            new_individuals[idx] = individual.into_inner();
+        }
+
+        // We haven't ensured the elites were inserted in order with the respect to the highest
+        // performers of the new generation
+        population.replace(new_individuals)
+    }
+}

@@ -1,5 +1,5 @@
-use rand::{RngCore, SeedableRng};
-use rayon::iter::ParallelIterator;
+use rand::{random, Rng, SeedableRng};
+use rayon::iter::{IndexedParallelIterator, ParallelIterator};
 
 use crate::{
     error::{SimulationError, SimulationSetupError},
@@ -9,7 +9,7 @@ use crate::{
     stop_criterion::{
         MaxGenerationsStopCriterion, NullStopCriterion, OrStopCriterion, StopCriterion,
     },
-    DefaultRng, Tracker,
+    DefaultRng, IndividualRef, Tracker,
 };
 use std::{
     any::{Any, TypeId},
@@ -31,7 +31,7 @@ pub struct Simulation<
     stop_criterion: S,
 
     initial_population_size: Option<usize>,
-    rng: Option<DefaultRng>,
+    seed: Option<u64>,
 
     _ty: PhantomData<I>,
 }
@@ -43,13 +43,11 @@ impl<
         S: StopCriterion<I> + Any,
     > Simulation<I, G, P, U, S>
 {
-    /// Runs the simulation. This returns the final population of solutions when the stop criterion
-    /// triggered, ordered from best to worst by their fitness (i.e. the first solution will be the
-    /// most optimal).
+    /// Runs the simulation.
     ///
     /// Before calling this, a [`PairSelector`] and [`StopCriterion`] must have been set up, along
     /// with an initial population size.
-    pub fn run(mut self) -> Result<Vec<(I, I::Fitness)>, SimulationError> {
+    pub fn run(mut self) -> Result<SimulationResults<I>, SimulationError> {
         // Check that all mandatory fields are set
         let size = self
             .initial_population_size
@@ -64,12 +62,14 @@ impl<
             return Err(SimulationSetupError::NoStopCriterion.into());
         }
         // If the user didn't provide a seed, seed randomly
-        let mut rng = self.rng.get_or_insert_with(DefaultRng::from_os_rng);
+        let seed = self.seed.unwrap_or_else(|| random());
+        let mut rng = DefaultRng::seed_from_u64(seed);
 
         // Generate the population and compute all their fitnesses (generator is responsible for
         // using the RNG deterministically)
         let mut population = Population::new(self.generator.generate(size, &mut rng));
 
+        let mut num_generations = 0;
         loop {
             // Get an iterator that will select the next mating pair in the population (this
             // implicitly does fitness computations, rankings, etc.); this will finish once we have
@@ -82,22 +82,18 @@ impl<
 
             // We'll cross/mutate in parallel, seeding each independent block with the same RNG
             // (deterministic)
-            let mut child_rng_seed = [0u8; 32];
-            rng.fill_bytes(&mut child_rng_seed);
-
+            let child_seed: u64 = rng.random();
             let new_population = pairs
-                // NOTE: This is operating on a *parallel* iterator; `.map_init`'s `init()`
-                // function will only be called as many times as needed to pair things up (i.e.
-                // only for as many batches as there are). This *should* be deterministic.
-                .map_init(
-                    || DefaultRng::from_seed(child_rng_seed),
-                    |rng, (parent1, parent2)| {
-                        // Cross the parents and mutate to produce a child solution
-                        let mut child = parent1.cross(&parent2, &self.tracker, rng);
-                        child.mutate(&self.tracker, rng);
-                        child
-                    },
-                )
+                // NOTE: This is operating on a *parallel* iterator
+                .enumerate()
+                .map(|(idx, (parent1, parent2))| {
+                    let mut rng = DefaultRng::seed_from_u64(idx as u64 ^ child_seed);
+
+                    // Cross the parents and mutate to produce a child solution
+                    let mut child = parent1.cross(&parent2, &self.tracker, &mut rng);
+                    child.mutate(&self.tracker, &mut rng);
+                    child
+                })
                 .collect::<Vec<_>>();
 
             // Update the population (might carry individuals from the old population to the new
@@ -117,6 +113,9 @@ impl<
             self.pair_selector
                 .process_generation(&population, &old_individuals);
 
+            // We've now completed a generation, if we stop here we will have done that many
+            num_generations += 1;
+
             // Check if we've reached a satisfactory solution
             if self
                 .stop_criterion
@@ -126,12 +125,13 @@ impl<
             }
         }
 
-        // We've found a solution, report the final individuals and their fitnesses, in order
-        Ok(population
-            .individuals()
-            .map(|i| (i.clone(), i.fitness()))
-            .rev() // Worst to best -> best to worst
-            .collect())
+        // We've found a solution, report the results
+        Ok(SimulationResults {
+            final_population: population,
+            num_generations,
+            final_tracker: self.tracker,
+            seed,
+        })
     }
 
     /// Seeds the simulation's random number generator (currently [`DefaultRng`], though
@@ -144,7 +144,7 @@ impl<
     /// *Note: deterministic evaluation may vary between devices due to floating-point arithmetic
     /// differences, and especially between 32 and 64-bit devices.*
     pub fn with_seed(mut self, seed: u64) -> Self {
-        self.rng = Some(DefaultRng::seed_from_u64(seed));
+        self.seed = Some(seed);
         self
     }
 
@@ -174,7 +174,7 @@ impl<
             stop_criterion: self.stop_criterion,
 
             initial_population_size: self.initial_population_size,
-            rng: self.rng,
+            seed: self.seed,
 
             _ty: self._ty,
         }
@@ -195,7 +195,7 @@ impl<
             stop_criterion: self.stop_criterion,
 
             initial_population_size: self.initial_population_size,
-            rng: self.rng,
+            seed: self.seed,
 
             _ty: self._ty,
         }
@@ -220,7 +220,7 @@ impl<
             stop_criterion,
 
             initial_population_size: self.initial_population_size,
-            rng: self.rng,
+            seed: self.seed,
 
             _ty: self._ty,
         }
@@ -270,7 +270,7 @@ impl<
                 .or(MaxGenerationsStopCriterion::new(max_generations)),
 
             initial_population_size: self.initial_population_size,
-            rng: self.rng,
+            seed: self.seed,
 
             _ty: self._ty,
         }
@@ -304,9 +304,49 @@ impl<I: Individual> SimulationBuilder<I> {
             stop_criterion: NullStopCriterion,
 
             initial_population_size: None,
-            rng: None,
+            seed: None,
 
             _ty: PhantomData,
         }
+    }
+}
+
+/// The final results of a simulation. This allows access to the underlying final [`Population`],
+/// which can be used to get the best performing individual in the last generation, to iterate over
+/// the individuals in that generation, etc. It also exposes generic simulation statistics.
+pub struct SimulationResults<I: Individual> {
+    final_population: Population<I>,
+    final_tracker: I::Tracker,
+    num_generations: usize,
+    seed: u64,
+}
+impl<I: Individual> SimulationResults<I> {
+    /// Returns the number of generations that occurred before the simulation terminated.
+    pub fn num_generations(&self) -> usize {
+        self.num_generations
+    }
+
+    /// Returns the seed used, which allows reproducing this result.
+    pub fn seed(&self) -> u64 {
+        self.seed
+    }
+
+    /// Returns the final value of the cross-generational tracker associated with the
+    /// individuals being simulated over.
+    pub fn last_tracker(&self) -> &I::Tracker {
+        &self.final_tracker
+    }
+
+    /// Returns the best individual (in the last generation, and, if the simulation is properly
+    /// configured, hopefully ever) in the simulation. This is `None` if there were no individuals
+    /// in the last generation (impossible with constant-size population simulations).
+    pub fn best(&self) -> Option<IndividualRef<I>> {
+        self.final_population.best_individual()
+    }
+
+    /// Gets the last generation of the population in this simulation. This allows accessing all
+    /// the individuals and qualities of that generation.
+    pub fn last_generation(&self) -> &Population<I> {
+        &self.final_population
     }
 }
