@@ -164,9 +164,7 @@ fn should_solve_travelling_salesman() {
             NotNan::new(1.0 / 2090.0).unwrap(),
         ))
         .or_max_generations(100)
-        // .with_seed(0) // 7 generations to 2090
-        .with_seed(9228755800967557821) // 7 generations to 2085
-        // .with_seed(14928277863987725638) // 8 generations to 2088
+        .with_seed(9228755800967557821) // 7 generations to 2085 (known global optimum)
         .run()
         .unwrap();
 
