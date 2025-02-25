@@ -43,6 +43,7 @@ impl<I: Individual, S: ProbabilitySelector<I>> PairSelector<I>
     ) -> impl IndexedParallelIterator<Item = (IndividualRef<'p, I>, IndividualRef<'p, I>)> {
         // Assign each individual a probability of being chosen
         let mut probabilities = self.inner.probabilities(population);
+        debug_assert!(!probabilities.iter().any(|p| p != p),);
         // Convert those to cumulative probabilities
         let mut total_so_far = 0.0;
         for p in &mut probabilities {
