@@ -79,7 +79,7 @@ static DISTANCES: [[f64; NUM_CITIES]; NUM_CITIES] = [
     ],
 ];
 
-const MUTATION_RATE: f64 = 0.2;
+const MUTATION_RATE: f64 = 0.5;
 
 /// A solution to the travelling salesman problem, which is an order in which to visit the cities.
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
@@ -156,15 +156,18 @@ impl Individual for Solution {
 
 #[test]
 fn should_solve_travelling_salesman() {
+    const MAX_GENERATIONS: usize = 100;
+
     let solutions = SimulationBuilder::<Solution>::new()
         .with_initial_population_size(10_000)
         .with_selector(TournamentSelector::new(150))
         .with_updater(StaticElitistUpdater::new_worst(10))
         .with_stop_criterion(FitnessThresholdStopCriterion::new(
-            NotNan::new(1.0 / 2090.0).unwrap(),
+            NotNan::new(1.0 / 2085.0).unwrap(),
         ))
-        .or_max_generations(100)
-        .with_seed(9228755800967557821) // 7 generations to 2085 (known global optimum)
+        .or_max_generations(MAX_GENERATIONS)
+        // .with_seed(9228755800967557821) // 7 generations to 2085 (known global optimum)
+        .with_seed(101959686909267228) // 6 generations to 2085!
         .run()
         .unwrap();
 
