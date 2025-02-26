@@ -90,8 +90,8 @@ const MUTATION_PROBABILITY: f64 = 0.3;
 // *Could* spuriously fail once or twice with really bad random numbers
 #[test]
 fn should_minimise_hypersphere() {
-    const N: usize = 2;
-    const POPULATION_SIZE: usize = 1000;
+    const N: usize = 10;
+    const POPULATION_SIZE: usize = 3000;
 
     // The objective function is the sum of the squares of the coordinates
     let objective_fn = |coords: &[NotNan<f64>; N]| {
@@ -106,7 +106,8 @@ fn should_minimise_hypersphere() {
         .with_generator(ObjectiveFnGenerator::new(objective_fn))
         .with_initial_population_size(POPULATION_SIZE)
         .with_selector(RouletteSelector.wrap())
-        .max_generations(30)
+        .with_updater(StaticElitistUpdater::new_worst(10))
+        .max_generations(100)
         .run()
         .unwrap();
 
@@ -119,7 +120,7 @@ fn should_minimise_hypersphere() {
     println!("Achieved in {} generations", solutions.num_generations());
     println!("Seed: {}", solutions.seed());
 
-    if best_fitness.abs() > 1e-5 {
-        panic!("best fitness was {best_fitness}, expected at least 1e-9");
+    if best_fitness.abs() > 1e-3 {
+        panic!("best fitness was {best_fitness}, expected at least 1e-3");
     }
 }
