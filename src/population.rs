@@ -10,9 +10,7 @@ use std::ops::Deref;
 use crate::Tracker;
 
 /// An individual in a genetic algorithm.
-pub trait Individual:
-    std::fmt::Debug + Clone + PartialEq + Eq + Hash + Send + Sync + 'static
-{
+pub trait Individual: Clone + PartialEq + Eq + Hash + Send + Sync + 'static {
     /// The type of the fitness value of an individual, which must be able to be compared with the
     /// fitnesses of others (ideally very efficiently). Typically, this will be an [`f64`] or
     /// similar.

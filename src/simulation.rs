@@ -160,6 +160,30 @@ impl<
         self
     }
 
+    /// Sets the [`Generator`] to use for the simulation, which will control how the initial
+    /// population is generated. Typically, this doesn't need to be called, because individuals can
+    /// be generated independently (the default is [`SimpleGenerator`]), but if your simulation
+    /// requires some invariants to be preserved over the population, you'll need to write your own
+    /// and use this method.
+    ///
+    /// Note that custom generators can also be used when solution types are generic over multiple
+    /// problems (e.g. a solution type representing a general vector, with the objective function
+    /// referenced and provided by a pre-set, problem-specific, generator).
+    pub fn with_generator<G2: Generator<I>>(self, generator: G2) -> Simulation<I, G2, P, U, S> {
+        Simulation {
+            generator,
+            pair_selector: self.pair_selector,
+            tracker: self.tracker,
+            population_updater: self.population_updater,
+            stop_criterion: self.stop_criterion,
+
+            initial_population_size: self.initial_population_size,
+            seed: self.seed,
+
+            _ty: self._ty,
+        }
+    }
+
     /// Sets the [`PairSelector`] to use for the simulation, which will control how mating pairs of
     /// solutions are chosen. This method must be called at some stage before [`Self::run`].
     pub fn with_selector<P2: PairSelector<I>>(
