@@ -1,6 +1,3 @@
-use rand::{random, Rng, SeedableRng};
-use rayon::iter::{IndexedParallelIterator, ParallelIterator};
-
 use crate::{
     error::{SimulationError, SimulationSetupError},
     pair_selector::{NullPairSelector, PairSelector},
@@ -9,8 +6,11 @@ use crate::{
     stop_criterion::{
         MaxGenerationsStopCriterion, NullStopCriterion, OrStopCriterion, StopCriterion,
     },
-    DefaultRng, IndividualRef, Tracker,
+    DefaultRng, IndividualRef, NullTracker, Tracker,
 };
+use frunk::{hlist::Selector, HCons};
+use rand::{random, Rng, SeedableRng};
+use rayon::iter::{IndexedParallelIterator, ParallelIterator};
 use std::{
     any::{Any, TypeId},
     marker::PhantomData,
@@ -20,13 +20,14 @@ use std::{
 pub struct Simulation<
     I: Individual,
     G: Generator<I>,
+    T: Tracker<I>,
     P: PairSelector<I>,
     U: PopulationUpdater<I>,
     S: StopCriterion<I>,
 > {
     generator: G,
     pair_selector: P,
-    tracker: I::Tracker,
+    trackers: HCons<I::Tracker, T>,
     population_updater: U,
     stop_criterion: S,
 
@@ -38,16 +39,17 @@ pub struct Simulation<
 impl<
         I: Individual,
         G: Generator<I>,
+        T: Tracker<I>,
         P: PairSelector<I> + Any,
         U: PopulationUpdater<I>,
         S: StopCriterion<I> + Any,
-    > Simulation<I, G, P, U, S>
+    > Simulation<I, G, T, P, U, S>
 {
     /// Runs the simulation.
     ///
     /// Before calling this, a [`PairSelector`] and [`StopCriterion`] must have been set up, along
     /// with an initial population size.
-    pub fn run(mut self) -> Result<SimulationResults<I>, SimulationError> {
+    pub fn run(mut self) -> Result<SimulationResults<I, T>, SimulationError> {
         // Check that all mandatory fields are set
         let size = self
             .initial_population_size
@@ -90,8 +92,8 @@ impl<
                     let mut rng = DefaultRng::seed_from_u64(idx as u64 ^ child_seed);
 
                     // Cross the parents and mutate to produce a child solution
-                    let mut child = parent1.cross(&parent2, &self.tracker, &mut rng);
-                    child.mutate(&self.tracker, &mut rng);
+                    let mut child = parent1.cross(&parent2, &self.trackers.head, &mut rng);
+                    child.mutate(&self.trackers.head, &mut rng);
                     child
                 })
                 .collect::<Vec<_>>();
@@ -108,7 +110,7 @@ impl<
 
             // Update everyone's cross-generational statistics (population updater and stop
             // criterion will handle it separately)
-            self.tracker
+            self.trackers
                 .process_generation(&population, &old_individuals);
             self.pair_selector
                 .process_generation(&population, &old_individuals);
@@ -129,7 +131,7 @@ impl<
         Ok(SimulationResults {
             final_population: population,
             num_generations,
-            final_tracker: self.tracker,
+            trackers: self.trackers,
             seed,
         })
     }
@@ -169,11 +171,43 @@ impl<
     /// Note that custom generators can also be used when solution types are generic over multiple
     /// problems (e.g. a solution type representing a general vector, with the objective function
     /// referenced and provided by a pre-set, problem-specific, generator).
-    pub fn with_generator<G2: Generator<I>>(self, generator: G2) -> Simulation<I, G2, P, U, S> {
+    pub fn with_generator<G2: Generator<I>>(self, generator: G2) -> Simulation<I, G2, T, P, U, S> {
         Simulation {
             generator,
             pair_selector: self.pair_selector,
-            tracker: self.tracker,
+            trackers: self.trackers,
+            population_updater: self.population_updater,
+            stop_criterion: self.stop_criterion,
+
+            initial_population_size: self.initial_population_size,
+            seed: self.seed,
+
+            _ty: self._ty,
+        }
+    }
+
+    /// Adds the given [`Tracker`] to the trackers used in the simulation. This allows tracking
+    /// arbitrary simulation-specific statistics which can be accessed at the end of the
+    /// simulation.
+    ///
+    /// Note that the trackers added here are *different* to [`Individual::Tracker`]. See that type
+    /// for details.
+    pub fn with_tracker<T2: Tracker<I>>(
+        self,
+        tracker: T2,
+    ) -> Simulation<I, G, HCons<T2, T>, P, U, S> {
+        Simulation {
+            generator: self.generator,
+            pair_selector: self.pair_selector,
+            // The head of the list is always the individual tracker, and otherwise we prepend to
+            // the top-level tail (meaning the final tracker will always be `NullTracker`)
+            trackers: HCons {
+                head: self.trackers.head,
+                tail: HCons {
+                    head: tracker,
+                    tail: self.trackers.tail,
+                },
+            },
             population_updater: self.population_updater,
             stop_criterion: self.stop_criterion,
 
@@ -189,11 +223,11 @@ impl<
     pub fn with_selector<P2: PairSelector<I>>(
         self,
         pair_selector: P2,
-    ) -> Simulation<I, G, P2, U, S> {
+    ) -> Simulation<I, G, T, P2, U, S> {
         Simulation {
             generator: self.generator,
             pair_selector,
-            tracker: self.tracker,
+            trackers: self.trackers,
             population_updater: self.population_updater,
             stop_criterion: self.stop_criterion,
 
@@ -210,11 +244,11 @@ impl<
     pub fn with_updater<U2: PopulationUpdater<I>>(
         self,
         population_updater: U2,
-    ) -> Simulation<I, G, P, U2, S> {
+    ) -> Simulation<I, G, T, P, U2, S> {
         Simulation {
             generator: self.generator,
             pair_selector: self.pair_selector,
-            tracker: self.tracker,
+            trackers: self.trackers,
             population_updater,
             stop_criterion: self.stop_criterion,
 
@@ -235,11 +269,11 @@ impl<
     pub fn with_stop_criterion<S2: StopCriterion<I>>(
         self,
         stop_criterion: S2,
-    ) -> Simulation<I, G, P, U, S2> {
+    ) -> Simulation<I, G, T, P, U, S2> {
         Simulation {
             generator: self.generator,
             pair_selector: self.pair_selector,
-            tracker: self.tracker,
+            trackers: self.trackers,
             population_updater: self.population_updater,
             stop_criterion,
 
@@ -253,9 +287,10 @@ impl<
 impl<
         I: Individual,
         G: Generator<I>,
+        T: Tracker<I>,
         P: PairSelector<I> + 'static,
         U: PopulationUpdater<I> + 'static,
-    > Simulation<I, G, P, U, NullStopCriterion>
+    > Simulation<I, G, T, P, U, NullStopCriterion>
 {
     /// Stops the simulation after the given maximum number of generations. If you'd like to use a
     /// different [`StopCriterion`], call [`Self::with_stop_criterion`] and then
@@ -264,17 +299,18 @@ impl<
     pub fn max_generations(
         self,
         max_generations: usize,
-    ) -> Simulation<I, G, P, U, MaxGenerationsStopCriterion> {
+    ) -> Simulation<I, G, T, P, U, MaxGenerationsStopCriterion> {
         self.with_stop_criterion(MaxGenerationsStopCriterion::new(max_generations))
     }
 }
 impl<
         I: Individual,
         G: Generator<I>,
+        T: Tracker<I>,
         P: PairSelector<I>,
         U: PopulationUpdater<I>,
         S: StopCriterion<I>,
-    > Simulation<I, G, P, U, S>
+    > Simulation<I, G, T, P, U, S>
 {
     /// Regardless of what the other stop criterion says, stop the simulation after the given
     /// number of generations has passed. This is equivalent to calling
@@ -283,11 +319,11 @@ impl<
     pub fn or_max_generations(
         self,
         max_generations: usize,
-    ) -> Simulation<I, G, P, U, OrStopCriterion<I, S, MaxGenerationsStopCriterion>> {
+    ) -> Simulation<I, G, T, P, U, OrStopCriterion<I, S, MaxGenerationsStopCriterion>> {
         Simulation {
             generator: self.generator,
             pair_selector: self.pair_selector,
-            tracker: self.tracker,
+            trackers: self.trackers,
             population_updater: self.population_updater,
             stop_criterion: self
                 .stop_criterion
@@ -316,6 +352,7 @@ impl<I: Individual> SimulationBuilder<I> {
     pub fn new() -> Simulation<
         I,
         SimpleGenerator, // Actually valid
+        NullTracker,
         NullPairSelector,
         DirectPopulationUpdater, // Actually valid
         NullStopCriterion,
@@ -323,7 +360,10 @@ impl<I: Individual> SimulationBuilder<I> {
         Simulation {
             generator: SimpleGenerator,
             pair_selector: NullPairSelector,
-            tracker: I::tracker(),
+            trackers: HCons {
+                head: I::tracker(),
+                tail: NullTracker,
+            },
             population_updater: DirectPopulationUpdater,
             stop_criterion: NullStopCriterion,
 
@@ -338,13 +378,13 @@ impl<I: Individual> SimulationBuilder<I> {
 /// The final results of a simulation. This allows access to the underlying final [`Population`],
 /// which can be used to get the best performing individual in the last generation, to iterate over
 /// the individuals in that generation, etc. It also exposes generic simulation statistics.
-pub struct SimulationResults<I: Individual> {
+pub struct SimulationResults<I: Individual, T: Tracker<I>> {
     final_population: Population<I>,
-    final_tracker: I::Tracker,
+    trackers: HCons<I::Tracker, T>,
     num_generations: usize,
     seed: u64,
 }
-impl<I: Individual> SimulationResults<I> {
+impl<I: Individual, T: Tracker<I>> SimulationResults<I, T> {
     /// Returns the number of generations that occurred before the simulation terminated.
     pub fn num_generations(&self) -> usize {
         self.num_generations
@@ -357,8 +397,20 @@ impl<I: Individual> SimulationResults<I> {
 
     /// Returns the final value of the cross-generational tracker associated with the
     /// individuals being simulated over.
-    pub fn last_tracker(&self) -> &I::Tracker {
-        &self.final_tracker
+    pub fn individual_tracker(&self) -> &I::Tracker {
+        &self.trackers.head
+    }
+
+    /// Returns the tracker with the given type. Trackers are stored in a heterogeneous list, so
+    /// generally, providing the type of the tracker you need will work, and you can provide the
+    /// index (0 is the individual tracker) if needed too.
+    ///
+    /// See [`HCons::get`] for further details.
+    pub fn tracker<T1, Index>(&self) -> &T1
+    where
+        HCons<I::Tracker, T>: Selector<T1, Index>,
+    {
+        self.trackers.get()
     }
 
     /// Returns the best individual (in the last generation, and, if the simulation is properly

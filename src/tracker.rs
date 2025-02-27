@@ -1,14 +1,13 @@
 use crate::population::{Individual, Population};
+use frunk::HCons;
 
-/// A tracker, which can be used by individuals to track cross-generational statistics, allowing
-/// crossing and mutation behaviours to change as the simulation goes on. A common statistic to
-/// track is the number of generations that have occurred, which could be used to change the
-/// mutation rate as the solutions converge to an optimal solution.
-///
-/// While trackers are generic over [`Individual`]s (to allow general trackers to exist that can be
-/// used in many kinds of problems), it is common for a simulation-specific tracker to work only
-/// with the individual it needs to. Individuals in turn have an associated type for the tracker
-/// they specifically use.
+/// A tracker, which can be attached to a simulation to track arbitrary cross-generational
+/// statistics, which can be accessed when the simulation ends. Trackers are used in two places:
+/// when they're attached directly to simulations, and when they're used by individuals. The latter
+/// are specified through [`Individual::Tracker`], which allows an individual type to track how the
+/// simulation is progressing to change its own crossing/mutation behaviour. In most simulations,
+/// that will be [`NullTracker`] and the only trackers used will be those attached directly to the
+/// simulation.
 pub trait Tracker<I: Individual> {
     /// This method is called at the *end* of each generation, to allow a tracker to track
     /// cross-generational statistics. It is provided with the new population, along with the
@@ -26,4 +25,13 @@ pub trait Tracker<I: Individual> {
 pub struct NullTracker;
 impl<I: Individual> Tracker<I> for NullTracker {
     fn process_generation(&mut self, _: &Population<I>, _: &Vec<I>) {}
+}
+
+impl<I: Individual, T1: Tracker<I>, T2: Tracker<I>> Tracker<I> for HCons<T1, T2> {
+    fn process_generation(&mut self, population: &Population<I>, previous_generation: &Vec<I>) {
+        self.head
+            .process_generation(population, previous_generation);
+        self.tail
+            .process_generation(population, previous_generation);
+    }
 }

@@ -10,6 +10,8 @@ rand_xoshiro = "0.7.0"
 rayon = "1.10.0"
 thiserror = "2.0.11"
 ordered-float = "5.0.0"
+frunk = "0.4.3"
+plotters = { version = "0.3.7", optional = true }
 
 [dev-dependencies]
 ordered-float = { version = "5.0.0", features = [ "rand" ] }
@@ -17,3 +19,7 @@ ordered-float = { version = "5.0.0", features = [ "rand" ] }
 [lib]
 name = "genetic"
 path = "src/lib.rs"
+
+[features]
+default = [ "viz" ]
+viz = [ "plotters" ]
