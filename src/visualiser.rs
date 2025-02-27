@@ -97,16 +97,32 @@ where
     }
 }
 
-impl<I: Individual> VisualTracker<I, 2> {
+/// A trait for visualising the evolution of a simulation, producing a GIF of its evolution in
+/// `N + 1`-dimensional space. This is a marker trait that can be used to ensure a given `N` has an
+/// implementation for visualising the simulation.
+pub trait Visualise<const N: usize> {
+    fn visualise(
+        &self,
+        filename: &Path,
+        title: &str,
+        input_ranges: [Range<f64>; N],
+        output_range: Range<f64>,
+        axis_step: f64,
+        frame_delay: u32,
+    );
+}
+
+impl<I: Individual> Visualise<2> for VisualTracker<I, 2> {
     /// Visualises the evolution of the simulation as a GIF, saving it to the given filename. The
     /// title will be displayed at the top of the plot, and the axis ranges will apply for each
     /// axis in order (i.e. x, y, z), each with the given step. The frame delay controls how many
     /// milliseconds each generation is shown for (100-250 tend to be good values).
-    pub fn visualise(
+    fn visualise(
         &self,
         filename: &Path,
         title: &str,
-        axis_ranges: [Range<f64>; 3],
+        axis_ranges: [Range<f64>; 2],
+        output_range: Range<f64>,
         axis_step: f64,
         frame_delay: u32,
     ) {
@@ -124,8 +140,8 @@ impl<I: Individual> VisualTracker<I, 2> {
                 .caption(title, ("sans-serif", 20))
                 .build_cartesian_3d(
                     axis_ranges[0].clone().step(axis_step),
+                    output_range.clone().step(axis_step),
                     axis_ranges[1].clone().step(axis_step),
-                    axis_ranges[2].clone().step(axis_step),
                 )
                 .unwrap();
 
@@ -153,8 +169,8 @@ impl<I: Individual> VisualTracker<I, 2> {
                         (((axis_ranges[0].start / render_step) as i64)
                             ..((axis_ranges[0].end / render_step) as i64))
                             .map(|f| f as f64 * render_step),
-                        (((axis_ranges[2].start / render_step) as i64)
-                            ..((axis_ranges[2].end / render_step) as i64))
+                        (((axis_ranges[1].start / render_step) as i64)
+                            ..((axis_ranges[1].end / render_step) as i64))
                             .map(|f| f as f64 * render_step),
                         |x, z| (self.objective_fn)([x, z]),
                     )
@@ -169,6 +185,79 @@ impl<I: Individual> VisualTracker<I, 2> {
             chart
                 .draw_series(PointSeries::<(f64, f64, f64), _, Circle<_, _>, _>::new(
                     points.iter().map(|(xz, y)| (xz[0], *y, xz[1])),
+                    1,
+                    ShapeStyle::from(BLACK).filled(),
+                ))
+                .unwrap()
+                .label("Candidate solutions")
+                .legend(|(x, y)| Circle::new((x + 5, y + 5), 3, BLACK.filled()));
+
+            chart
+                .configure_series_labels()
+                .border_style(BLACK)
+                .draw()
+                .unwrap();
+
+            area.present().unwrap();
+        }
+
+        area.present().unwrap();
+    }
+}
+impl<I: Individual> Visualise<1> for VisualTracker<I, 1> {
+    /// Visualises the evolution of the simulation as a GIF, saving it to the given filename. The
+    /// title will be displayed at the top of the plot, and the axis ranges will apply for each
+    /// axis in order (i.e. x, y, z), each with the given step. The frame delay controls how many
+    /// milliseconds each generation is shown for (100-250 tend to be good values).
+    fn visualise(
+        &self,
+        filename: &Path,
+        title: &str,
+        axis_ranges: [Range<f64>; 1],
+        output_range: Range<f64>,
+        axis_step: f64,
+        frame_delay: u32,
+    ) {
+        use plotters::prelude::*;
+
+        let area = BitMapBackend::gif(filename, (1024, 1024), frame_delay)
+            .unwrap()
+            .into_drawing_area();
+
+        // Plot each generation
+        for points in &self.points {
+            area.fill(&WHITE).unwrap();
+
+            let mut chart = ChartBuilder::on(&area)
+                .caption(title, ("sans-serif", 20))
+                .build_cartesian_2d(
+                    axis_ranges[0].clone().step(axis_step),
+                    output_range.clone().step(axis_step),
+                )
+                .unwrap();
+
+            let render_step = axis_step * 10.0;
+
+            chart
+                .draw_series(LineSeries::new(
+                    // We want to plot the function at every step, which means we need to
+                    // convert something like -5.0..5.0 with a step of 0.1 to -50..50 and then
+                    // evaluate on every one of those points, times 0.1
+                    (((axis_ranges[0].start / render_step) as i64)
+                        ..((axis_ranges[0].end / render_step) as i64))
+                        .map(|f| f as f64 * render_step)
+                        .map(|x| (x, (self.objective_fn)([x]))),
+                    BLUE.mix(0.2).filled(),
+                ))
+                .unwrap()
+                .label("Surface")
+                .legend(|(x, y)| {
+                    Rectangle::new([(x + 5, y - 5), (x + 15, y + 5)], BLUE.mix(0.5).filled())
+                });
+
+            chart
+                .draw_series(PointSeries::<(f64, f64), _, Circle<_, _>, _>::new(
+                    points.iter().map(|(x, y)| (x[0], *y)),
                     1,
                     ShapeStyle::from(BLACK).filled(),
                 ))
