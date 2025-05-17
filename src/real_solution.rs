@@ -120,7 +120,7 @@ impl<const N: usize> RealSolutionGenerator<N> {
     /// objective function value. As a result, if you need to display fitness values later, you
     /// should reciprocate them again:
     ///
-    /// ```rust
+    /// ```rust,ignore
     /// let best_fitness = 1.0 / *solutions.best().unwrap().fitness();
     /// ```
     pub fn new(

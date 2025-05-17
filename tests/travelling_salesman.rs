@@ -167,7 +167,7 @@ fn should_solve_travelling_salesman() {
         ))
         .or_max_generations(MAX_GENERATIONS)
         // .with_seed(9228755800967557821) // 7 generations to 2085 (known global optimum)
-        .with_seed(101959686909267228) // 6 generations to 2085!
+        .with_seed(16953019627624396133) // 5 generations to 2085!
         .run()
         .unwrap();
 

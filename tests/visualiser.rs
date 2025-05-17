@@ -64,7 +64,7 @@ fn should_minimise_rastrigin() {
             .sum::<f64>()
     };
 
-    simulate_and_visualise_fn::<2>(obj_fn, -10.0..10.0)
+    simulate_and_visualise_fn::<2>(obj_fn, -100.0..100.0)
 }
 
 #[test]
