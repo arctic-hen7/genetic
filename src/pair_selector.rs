@@ -6,7 +6,7 @@ use rayon::iter::{IndexedParallelIterator, IntoParallelIterator};
 /// play the role of environmental circumstances, deciding which solutions are "good enough" to
 /// produce child solutions. In nearly all cases, this will rely on some kind of ranking by a
 /// metric of fitness, though this can be arbitrarily complex.
-pub trait PairSelector<I: Individual + 'static> {
+pub trait PairSelector<I: Individual> {
     /// Selects the pairs of solutions which will be crossed. The same individual(s) can appear
     /// multiple times.
     ///
@@ -22,7 +22,7 @@ pub trait PairSelector<I: Individual + 'static> {
         &self,
         population: &'p Population<I>,
         rng: &mut impl Rng,
-    ) -> impl IndexedParallelIterator<Item = (IndividualRef<'p, I>, IndividualRef<'p, I>)>;
+    ) -> impl IndexedParallelIterator<Item = (IndividualRef<'p, I>, IndividualRef<'p, I>)> + 'p;
 
     /// This method is called at the *end* of each generation, to allow a selector to track
     /// cross-generational statistics. It is provided with the new population, along with the
@@ -43,7 +43,8 @@ impl<I: Individual> PairSelector<I> for NullPairSelector {
         &self,
         _population: &'p Population<I>,
         _rng: &mut impl Rng,
-    ) -> impl IndexedParallelIterator<Item = (IndividualRef<'p, I>, IndividualRef<'p, I>)> {
+    ) -> impl IndexedParallelIterator<Item = (IndividualRef<'p, I>, IndividualRef<'p, I>)> + 'p
+    {
         unimplemented!();
 
         // Need this for type hints

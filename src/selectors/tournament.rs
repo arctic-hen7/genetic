@@ -25,19 +25,21 @@ impl<I: Individual> PairSelector<I> for TournamentSelector {
         &self,
         population: &'p Population<I>,
         rng: &mut impl Rng,
-    ) -> impl IndexedParallelIterator<Item = (IndividualRef<'p, I>, IndividualRef<'p, I>)> {
+    ) -> impl IndexedParallelIterator<Item = (IndividualRef<'p, I>, IndividualRef<'p, I>)> + 'p
+    {
+        let tournament_size = self.tournament_size;
         (0..population.size())
             .into_iter()
             .map(|_| DefaultRng::from_rng(rng))
             .collect::<Vec<_>>()
             .into_par_iter()
-            .map(|mut rng| {
+            .map(move |mut rng| {
                 // Choose `tournament_size` indices; because they're already ordered from worst to
                 // best, the two highest indices win and mate
                 let mut best_index = 0;
                 let mut second_best_index = 0;
 
-                for _ in 0..self.tournament_size {
+                for _ in 0..tournament_size {
                     let idx = rng.random_range(0..population.size());
                     if idx > best_index {
                         second_best_index = best_index;

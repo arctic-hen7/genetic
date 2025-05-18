@@ -40,7 +40,8 @@ impl<I: Individual, S: ProbabilitySelector<I>> PairSelector<I>
         &self,
         population: &'p Population<I>,
         rng: &mut impl Rng,
-    ) -> impl IndexedParallelIterator<Item = (IndividualRef<'p, I>, IndividualRef<'p, I>)> {
+    ) -> impl IndexedParallelIterator<Item = (IndividualRef<'p, I>, IndividualRef<'p, I>)> + 'p
+    {
         // Assign each individual a probability of being chosen
         let mut probabilities = self.inner.probabilities(population);
         debug_assert!(!probabilities.iter().any(|p| p != p),);
