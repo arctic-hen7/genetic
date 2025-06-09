@@ -2,7 +2,7 @@ use rand::Rng;
 use rayon::iter::{
     IndexedParallelIterator, IntoParallelRefIterator, ParallelExtend, ParallelIterator,
 };
-use rayon::slice::ParallelSlice;
+use rayon::slice::{ParallelSlice, ParallelSliceMut};
 use std::collections::{HashMap, HashSet};
 use std::hash::Hash;
 use std::ops::Deref;
@@ -131,7 +131,7 @@ impl<I: Individual> FitnessCache<I> {
         // separately to avoid trying to extend `self.inner` from an iterator based on filtering by
         // a reference to `self.inner`
         let skip_indices = individuals
-            .iter()
+            .par_iter()
             .enumerate()
             .filter(|(_, i)| self.inner.contains_key(i))
             .map(|(idx, _)| idx)
@@ -168,7 +168,7 @@ impl<I: Individual> Population<I> {
         // Sort the population from lowest fitness to highest (we can't invert `I::Fitness` easily,
         // so sorting from highest to lowest would be another O(n) loop, which we can avoid by just
         // pre-reversing the iterator whenever we need it)
-        population.sort_by_key(|i| fitness_cache.get_fitness(i).unwrap());
+        population.par_sort_by_key(|i| fitness_cache.get_fitness(i).unwrap());
 
         Self {
             population,
@@ -231,7 +231,7 @@ impl<I: Individual> Population<I> {
     pub fn replace(&mut self, mut new_individuals: Vec<I>) -> Vec<I> {
         self.fitness_cache.register_all(&new_individuals);
 
-        new_individuals.sort_by_key(|i| self.fitness_cache.get_fitness(i).unwrap());
+        new_individuals.par_sort_by_key(|i| self.fitness_cache.get_fitness(i).unwrap());
 
         std::mem::replace(&mut self.population, new_individuals)
     }
@@ -258,7 +258,7 @@ impl<I: Individual> Population<I> {
     /// previous generation. As such, this is a very common method for population updaters to call.
     pub fn register_and_sort_other(&mut self, new_individuals: &mut Vec<I>) {
         self.fitness_cache.register_all(&new_individuals);
-        new_individuals.sort_by_key(|i| self.fitness_cache.get_fitness(i).unwrap());
+        new_individuals.par_sort_by_key(|i| self.fitness_cache.get_fitness(i).unwrap());
     }
 }
 
