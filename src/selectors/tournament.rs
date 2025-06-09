@@ -28,32 +28,29 @@ impl<I: Individual> PairSelector<I> for TournamentSelector {
     ) -> impl IndexedParallelIterator<Item = (IndividualRef<'p, I>, IndividualRef<'p, I>)> + 'p
     {
         let tournament_size = self.tournament_size;
-        (0..population.size())
-            .into_iter()
-            .map(|_| DefaultRng::from_rng(rng))
-            .collect::<Vec<_>>()
-            .into_par_iter()
-            .map(move |mut rng| {
-                // Choose `tournament_size` indices; because they're already ordered from worst to
-                // best, the two highest indices win and mate
-                let mut best_index = 0;
-                let mut second_best_index = 0;
+        let global_seed: u64 = rng.random();
+        (0..population.size()).into_par_iter().map(move |idx| {
+            let mut rng = DefaultRng::seed_from_u64(idx as u64 ^ global_seed);
+            // Choose `tournament_size` indices; because they're already ordered from worst to
+            // best, the two highest indices win and mate
+            let mut best_index = 0;
+            let mut second_best_index = 0;
 
-                for _ in 0..tournament_size {
-                    let idx = rng.random_range(0..population.size());
-                    if idx > best_index {
-                        second_best_index = best_index;
-                        best_index = idx;
-                    } else if idx > second_best_index {
-                        second_best_index = idx;
-                    }
+            for _ in 0..tournament_size {
+                let idx = rng.random_range(0..population.size());
+                if idx > best_index {
+                    second_best_index = best_index;
+                    best_index = idx;
+                } else if idx > second_best_index {
+                    second_best_index = idx;
                 }
+            }
 
-                (
-                    population.individual_at(best_index).unwrap(),
-                    population.individual_at(second_best_index).unwrap(),
-                )
-            })
+            (
+                population.individual_at(best_index).unwrap(),
+                population.individual_at(second_best_index).unwrap(),
+            )
+        })
     }
 
     fn process_generation(&mut self, _: &Population<I>, _: &Vec<I>) {}
