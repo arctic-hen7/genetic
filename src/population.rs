@@ -1,10 +1,11 @@
+use ahash::RandomState as ARandomState;
+use lru::LruCache;
 use rand::Rng;
-use rayon::iter::{
-    IndexedParallelIterator, IntoParallelRefIterator, ParallelExtend, ParallelIterator,
-};
+use rayon::iter::{IndexedParallelIterator, IntoParallelRefIterator, ParallelIterator};
 use rayon::slice::{ParallelSlice, ParallelSliceMut};
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::hash::Hash;
+use std::num::NonZeroUsize;
 use std::ops::Deref;
 
 use crate::Tracker;
@@ -85,30 +86,46 @@ impl<I: Individual> Generator<I> for SimpleGenerator {
 pub(crate) struct FitnessCache<I: Individual> {
     /// A cache of fitness values of individuals that have appeared in the population at any time,
     /// which ensures we never need to compute the fitness for an individual twice.
-    // TODO: Make this an LRU cache or similar so memory use doesn't blow up
-    inner: HashMap<I, I::Fitness>,
+    inner: LruCache<I, I::Fitness, ARandomState>,
 }
 impl<I: Individual> FitnessCache<I> {
     /// Creates a new fitness cache, starting with the given individuals. Calling this with the
     /// initial population is more efficient that calling it with an empty slice and then calling
     /// [`Self::register_all`], because this knows the cache is empty and skips additional checks
     /// (which ends up saving a whole $O(n)$ loop).
-    pub(crate) fn new(individuals: &[I]) -> Self {
-        let mut cache = HashMap::new();
-        cache.par_extend(
-            individuals
-                .as_parallel_slice()
-                .par_iter()
-                .map(|i| (i.clone(), i.fitness())),
+    ///
+    /// This will compute the fitness of all the given individuals in parallel.
+    ///
+    /// # Panics
+    ///
+    /// This will panic if the given cache size if zero.
+    pub(crate) fn new(individuals: &[I], size: usize) -> Self {
+        let mut cache = LruCache::with_hasher(
+            NonZeroUsize::new(size).expect("fitness cache size must be non-zero"),
+            ARandomState::default(),
         );
+        let kv_pairs = individuals
+            .as_parallel_slice()
+            .par_iter()
+            .map(|i| (i.clone(), i.fitness()))
+            .collect_vec_list();
+        for list in kv_pairs {
+            for (k, v) in list {
+                cache.push(k, v);
+            }
+        }
 
         Self { inner: cache }
     }
 
     /// Gets the given individual's fitness from the cache, if it's there. This will not compute
     /// the fitness if it's not in the cache.
-    fn get_fitness(&self, individual: &I) -> Option<I::Fitness> {
-        self.inner.get(individual).copied()
+    ///
+    /// Note: under the hood, we store fitnesses using an LRU cache (meaning the last recently used
+    /// will be evicted). This method does *not* update the usage of the element you're trying to
+    /// access!
+    fn try_fitness(&self, individual: &I) -> Option<I::Fitness> {
+        self.inner.peek(individual).copied()
     }
 
     /// Computes the given individual's fitness, fetching it from the cache first or computing it
@@ -118,7 +135,7 @@ impl<I: Individual> FitnessCache<I> {
             *fitness
         } else {
             let fitness = individual.fitness();
-            self.inner.insert(individual.clone(), fitness.clone());
+            self.inner.push(individual.clone(), fitness.clone());
             fitness
         }
     }
@@ -133,18 +150,23 @@ impl<I: Individual> FitnessCache<I> {
         let skip_indices = individuals
             .par_iter()
             .enumerate()
-            .filter(|(_, i)| self.inner.contains_key(i))
+            .filter(|(_, i)| self.inner.contains(i))
             .map(|(idx, _)| idx)
-            .collect::<HashSet<_>>();
+            .collect::<HashSet<_, ARandomState>>();
 
         // Then actually compute the fitnesses in parallel and extend
-        let iter = individuals
+        let kv_pairs = individuals
             .as_parallel_slice()
             .par_iter()
             .enumerate()
             .filter(|(idx, _)| !skip_indices.contains(idx))
-            .map(|(_, i)| (i.clone(), i.fitness()));
-        self.inner.par_extend(iter);
+            .map(|(_, i)| (i.clone(), i.fitness()))
+            .collect_vec_list();
+        for list in kv_pairs {
+            for (k, v) in list {
+                self.inner.push(k, v);
+            }
+        }
     }
 }
 
@@ -163,12 +185,14 @@ impl<I: Individual> Population<I> {
     /// will generate a fitness cache and compute the fitness for all provided individuals in
     /// parallel.
     pub(crate) fn new(mut population: Vec<I>) -> Self {
-        let fitness_cache = FitnessCache::new(&population);
+        // NOTE: Right now, we're just allowing 50% more space than one generation takes up. Might
+        // change this in future or allow the user to?
+        let fitness_cache = FitnessCache::new(&population, population.len() * 3 / 2);
 
         // Sort the population from lowest fitness to highest (we can't invert `I::Fitness` easily,
         // so sorting from highest to lowest would be another O(n) loop, which we can avoid by just
         // pre-reversing the iterator whenever we need it)
-        population.par_sort_by_key(|i| fitness_cache.get_fitness(i).unwrap());
+        population.par_sort_unstable_by_key(|i| fitness_cache.try_fitness(i).unwrap());
 
         Self {
             population,
@@ -231,7 +255,7 @@ impl<I: Individual> Population<I> {
     pub fn replace(&mut self, mut new_individuals: Vec<I>) -> Vec<I> {
         self.fitness_cache.register_all(&new_individuals);
 
-        new_individuals.par_sort_by_key(|i| self.fitness_cache.get_fitness(i).unwrap());
+        new_individuals.par_sort_unstable_by_key(|i| self.fitness_cache.try_fitness(i).unwrap());
 
         std::mem::replace(&mut self.population, new_individuals)
     }
@@ -243,7 +267,7 @@ impl<I: Individual> Population<I> {
     pub fn replace_with_sorted_and_registered(&mut self, new_individuals: Vec<I>) -> Vec<I> {
         debug_assert!(new_individuals
             .iter()
-            .all(|i| self.fitness_cache.get_fitness(i).is_some()));
+            .all(|i| self.fitness_cache.try_fitness(i).is_some()));
 
         std::mem::replace(&mut self.population, new_individuals)
     }
@@ -258,7 +282,7 @@ impl<I: Individual> Population<I> {
     /// previous generation. As such, this is a very common method for population updaters to call.
     pub fn register_and_sort_other(&mut self, new_individuals: &mut Vec<I>) {
         self.fitness_cache.register_all(&new_individuals);
-        new_individuals.par_sort_by_key(|i| self.fitness_cache.get_fitness(i).unwrap());
+        new_individuals.par_sort_unstable_by_key(|i| self.fitness_cache.try_fitness(i).unwrap());
     }
 }
 
@@ -268,22 +292,30 @@ impl<I: Individual> Population<I> {
 pub struct IndividualRef<'a, I: Individual> {
     /// The individual we're referencing.
     inner: &'a I,
-    /// A fitness cache, which *must* include the fitness of the individual we're referencing.
+    /// A fitness cache, which *should* include the fitness of the individual we're referencing.
     fitness_cache: &'a FitnessCache<I>,
 }
 impl<'a, I: Individual> IndividualRef<'a, I> {
     /// Creates a new reference to the given individual, using the given fitness cache.
     pub(crate) fn new(inner: &'a I, fitness_cache: &'a FitnessCache<I>) -> Self {
-        debug_assert!(fitness_cache.get_fitness(inner).is_some());
+        debug_assert!(fitness_cache.try_fitness(inner).is_some());
 
         Self {
             inner,
             fitness_cache,
         }
     }
-    /// Gets the fitness of the individual from the cache.
+    /// Gets the fitness of the individual from the cache. This will not compute the fitness if
+    /// it's already stored (but holding onto an individual reference for more than one generation
+    /// may mean its fitness is evicted from the cache, so this will compute it again if
+    /// necessary).
+    ///
+    /// Note: if this function needs to recompute an individual's fitness, it will *not* add that
+    /// fitness back to the main cache, so don't expect it to if you use this in a hot loop!
     pub fn fitness(&self) -> I::Fitness {
-        self.fitness_cache.get_fitness(self.inner).unwrap()
+        self.fitness_cache
+            .try_fitness(self.inner)
+            .unwrap_or_else(|| self.inner.fitness())
     }
     /// Extracts the inner individual by cloning it.
     pub fn into_inner(&self) -> I {
