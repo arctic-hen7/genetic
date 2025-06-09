@@ -45,7 +45,7 @@ impl<I: Individual> PairSelector<I> for NullPairSelector {
         _rng: &mut impl Rng,
     ) -> impl IndexedParallelIterator<Item = (IndividualRef<'p, I>, IndividualRef<'p, I>)> + 'p
     {
-        unimplemented!();
+        unimplemented!("you must specify a real pair selector for your simulation");
 
         // Need this for type hints
         #[allow(unreachable_code)]

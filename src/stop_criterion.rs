@@ -50,7 +50,7 @@ pub trait StopCriterion<I: Individual> {
 pub struct NullStopCriterion;
 impl<I: Individual> StopCriterion<I> for NullStopCriterion {
     fn should_stop(&mut self, _: &Population<I>, _: &Vec<I>) -> bool {
-        unimplemented!()
+        unimplemented!("you must specify a real stop criterion for your simulation");
     }
 }
 

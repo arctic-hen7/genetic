@@ -11,10 +11,7 @@ use crate::{
 use frunk::{hlist::Selector, HCons};
 use rand::{random, Rng, SeedableRng};
 use rayon::iter::{IndexedParallelIterator, ParallelIterator};
-use std::{
-    any::{Any, TypeId},
-    marker::PhantomData,
-};
+use std::marker::PhantomData;
 
 /// A simulation using a genetic algorithm to solve an optimisation problem.
 pub struct Simulation<
@@ -40,9 +37,9 @@ impl<
         I: Individual,
         G: Generator<I>,
         T: Tracker<I>,
-        P: PairSelector<I> + Any,
+        P: PairSelector<I>,
         U: PopulationUpdater<I>,
-        S: StopCriterion<I> + Any,
+        S: StopCriterion<I>,
     > Simulation<I, G, T, P, U, S>
 {
     /// Runs the simulation.
@@ -55,14 +52,6 @@ impl<
             .initial_population_size
             .ok_or(SimulationSetupError::NoPopulationSize)?;
 
-        // NOTE: No check for generator, tracker, or population updater, because their defaults are
-        // valid
-        if self.pair_selector.type_id() == TypeId::of::<NullPairSelector>() {
-            return Err(SimulationSetupError::NoPairSelector.into());
-        }
-        if self.stop_criterion.type_id() == TypeId::of::<NullStopCriterion>() {
-            return Err(SimulationSetupError::NoStopCriterion.into());
-        }
         // If the user didn't provide a seed, seed randomly
         let seed = self.seed.unwrap_or_else(|| random());
         let mut rng = DefaultRng::seed_from_u64(seed);
@@ -288,8 +277,8 @@ impl<
         I: Individual,
         G: Generator<I>,
         T: Tracker<I>,
-        P: PairSelector<I> + 'static,
-        U: PopulationUpdater<I> + 'static,
+        P: PairSelector<I>,
+        U: PopulationUpdater<I>,
     > Simulation<I, G, T, P, U, NullStopCriterion>
 {
     /// Stops the simulation after the given maximum number of generations. If you'd like to use a
