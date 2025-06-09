@@ -1,4 +1,4 @@
-use genetic::selectors::*;
+use genetic::{selectors::*, FitnessPlateauStopCriterion};
 use genetic::{
     FitnessThresholdStopCriterion, Individual, NullTracker, SimulationBuilder, StaticElitistUpdater,
 };
@@ -165,6 +165,11 @@ fn should_solve_travelling_salesman() {
         .with_stop_criterion(FitnessThresholdStopCriterion::new(
             NotNan::new(1.0 / 2085.0).unwrap(),
         ))
+        // .with_stop_criterion(FitnessPlateauStopCriterion::new(
+        //     5,
+        //     NotNan::new(1.0 / 2085.0).unwrap(),
+        //     5,
+        // ))
         .or_max_generations(MAX_GENERATIONS)
         // .with_seed(9228755800967557821) // 7 generations to 2085 (known global optimum)
         .with_seed(16953019627624396133) // 5 generations to 2085!

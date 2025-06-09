@@ -1,5 +1,5 @@
 use crate::population::{Individual, Population};
-use std::marker::PhantomData;
+use std::{marker::PhantomData, ops::Sub};
 
 /// A stop criterion for a genetic algorithm, which tells the algorithm when to stop (typically
 /// when a satisfactory solution has been reached).
@@ -96,6 +96,90 @@ impl<I: Individual> StopCriterion<I> for FitnessThresholdStopCriterion<I> {
             // There are no individuals in the population, so we can't produce any more; not
             // stopping here if we're the only criterion would lead to an infinite loop
             true
+        }
+    }
+}
+
+/// A stop criterion that stops the algorithm once the fitness of the best individual is rising by
+/// less than a certain amount over a given window of generations. Note that this does *not* take
+/// into account population diversity, so if you're getting stuck in a local optimum for a while
+/// before breaking out, this criterion will probably keep you there.
+pub struct FitnessPlateauStopCriterion<I: Individual>
+where
+    I::Fitness: Sub<Output = I::Fitness>,
+{
+    /// The number of generations to consider the change over.
+    window_size: usize,
+    /// The threshold of the slope from the best individual from `window_size` generations ago to
+    /// the best individual from the current generation, below which we consider the algorithm to
+    /// be plateauing.
+    slope_threshold: <I::Fitness as Sub>::Output,
+    /// The number of times we must be consecutively below the threshold before we stop.
+    num_below_threshold: usize,
+
+    /// The best fitnesses from the last `window_size` generations, in order from oldest to newest.
+    best_fitnesses: Vec<I::Fitness>,
+    /// The number of times we've been below the threshold in a row.
+    num_below_threshold_counter: usize,
+}
+impl<I: Individual> FitnessPlateauStopCriterion<I>
+where
+    I::Fitness: Sub<Output = I::Fitness>,
+{
+    /// Creates a new [`FitnessPlateauStopCriterion`] with the given window size (how many
+    /// generations to consider), slope threshold (the minimum improvement in the best individual's
+    /// fitness over that window before we think the algorithm is plateauing), and the number of
+    /// consecutive times we much be below that threshold before we stop.
+    pub fn new(
+        window_size: usize,
+        slope_threshold: <I::Fitness as Sub>::Output,
+        num_below_threshold: usize,
+    ) -> Self {
+        Self {
+            window_size,
+            slope_threshold,
+            num_below_threshold,
+            best_fitnesses: Vec::with_capacity(window_size),
+            num_below_threshold_counter: 0,
+        }
+    }
+}
+impl<I: Individual> StopCriterion<I> for FitnessPlateauStopCriterion<I>
+where
+    I::Fitness: Sub<Output = I::Fitness>,
+{
+    fn should_stop(&mut self, population: &Population<I>, _old_individuals: &Vec<I>) -> bool {
+        // If the new generation is empty, terminate immediately
+        if population.size() == 0 {
+            return true;
+        }
+
+        // Add the new best fitness to our tracker
+        let new_best = population.best_individual().unwrap().fitness();
+        self.best_fitnesses.push(new_best.clone());
+        // And remove the last one if needed to keep the window size
+        if self.best_fitnesses.len() > self.window_size {
+            self.best_fitnesses.remove(0);
+
+            // Compute the secant slope of the best fitnesses over the window
+            let slope = self.best_fitnesses.last().unwrap().clone()
+                - self.best_fitnesses.first().unwrap().clone();
+
+            // If the slope is less than the threshold, record that as a breach
+            if slope < self.slope_threshold {
+                self.num_below_threshold_counter += 1;
+                // And if we've had too many, stop
+                self.num_below_threshold_counter >= self.num_below_threshold
+            } else {
+                // Otherwise, reset the counter and keep going
+                self.num_below_threshold_counter = 0;
+
+                false
+            }
+        } else {
+            // If we haven't reached the window size yet, we don't have enough data to know if we
+            // should stop, so keep going
+            false
         }
     }
 }
