@@ -153,6 +153,11 @@ impl<I: Individual> FitnessCache<I> {
             .filter(|(_, i)| self.inner.contains(i))
             .map(|(idx, _)| idx)
             .collect::<HashSet<_, ARandomState>>();
+        // We must promote all those individuals to avoid them getting lost! If that happened,
+        // individuals we register may not have their fitnesses *actually* registered
+        for idx in &skip_indices {
+            self.inner.promote(&individuals[*idx]);
+        }
 
         // Then actually compute the fitnesses in parallel and extend
         let kv_pairs = individuals
