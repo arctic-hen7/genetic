@@ -5,6 +5,7 @@ use crate::{
 use rand::{Rng, SeedableRng};
 use rayon::iter::{IndexedParallelIterator, IntoParallelIterator, ParallelIterator};
 
+#[derive(Clone)]
 pub struct ProbabilitySelectorWrapper<I: Individual, S: ProbabilitySelector<I>> {
     inner: S,
     _ty: std::marker::PhantomData<I>,

@@ -37,6 +37,7 @@ pub trait PairSelector<I: Individual> {
 
 /// A pair selector that never selects any individuals. Because pair selectors are mandatory, if
 /// this is used in a final simulation, an error will occur.
+#[derive(Clone, Copy)]
 pub struct NullPairSelector;
 impl<I: Individual> PairSelector<I> for NullPairSelector {
     fn select<'p>(

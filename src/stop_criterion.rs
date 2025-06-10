@@ -47,6 +47,7 @@ pub trait StopCriterion<I: Individual> {
 
 /// A stop criterion that never stops. Because stop criteria are mandatory, if this is used in a
 /// final simulation, an error will occur.
+#[derive(Clone, Copy)]
 pub struct NullStopCriterion;
 impl<I: Individual> StopCriterion<I> for NullStopCriterion {
     fn should_stop(&mut self, _: &Population<I>, _: &Vec<I>) -> bool {
@@ -57,6 +58,7 @@ impl<I: Individual> StopCriterion<I> for NullStopCriterion {
 /// A stop criterion that imposes a maximum number of generations on the genetic algorithm,
 /// terminating it after that threshold is reached (i.e. after the fitness of the best individual
 /// is greater than or equal to it).
+#[derive(Clone)]
 pub struct MaxGenerationsStopCriterion {
     max_generations: usize,
     current_generation: usize,
@@ -79,6 +81,7 @@ impl<I: Individual> StopCriterion<I> for MaxGenerationsStopCriterion {
 /// A stop criterion that halts the algorithm once some individual reaches a certain minimum
 /// fitness threshold. This should be used in cases where a certain minimum fitness is required of
 /// a solution, past which point further optimisation is unnecessary.
+#[derive(Clone)]
 pub struct FitnessThresholdStopCriterion<I: Individual> {
     threshold: I::Fitness,
 }
@@ -104,6 +107,7 @@ impl<I: Individual> StopCriterion<I> for FitnessThresholdStopCriterion<I> {
 /// less than a certain amount over a given window of generations. Note that this does *not* take
 /// into account population diversity, so if you're getting stuck in a local optimum for a while
 /// before breaking out, this criterion will probably keep you there.
+#[derive(Clone)]
 pub struct FitnessPlateauStopCriterion<I: Individual>
 where
     I::Fitness: Sub<Output = I::Fitness>,
@@ -186,6 +190,7 @@ where
 
 /// A generic stop criterion that stops the algorithm when *both* the constituent stop criteria say
 /// to do so.
+#[derive(Clone)]
 pub struct AndStopCriterion<I: Individual, S1: StopCriterion<I>, S2: StopCriterion<I>> {
     s1: S1,
     s2: S2,
@@ -211,6 +216,7 @@ impl<I: Individual, S1: StopCriterion<I>, S2: StopCriterion<I>> StopCriterion<I>
 
 /// A generic stop criterion that stops the algorithm when *either* of the constituent stop
 /// criteria say to do so.
+#[derive(Clone)]
 pub struct OrStopCriterion<I: Individual, S1: StopCriterion<I>, S2: StopCriterion<I>> {
     s1: S1,
     s2: S2,
@@ -236,6 +242,7 @@ impl<I: Individual, S1: StopCriterion<I>, S2: StopCriterion<I>> StopCriterion<I>
 
 /// A generic stop criterion that stops the algorithm when the constituent stop criterion says to
 /// continue.
+#[derive(Clone)]
 pub struct NotStopCriterion<I: Individual, S: StopCriterion<I>> {
     s: S,
     _ty: PhantomData<I>,

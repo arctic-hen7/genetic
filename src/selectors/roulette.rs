@@ -11,6 +11,7 @@ use std::{iter::Sum, ops::Div};
 /// This requires the fitness type to be able to be summed up, and then to be divisible by that sum
 /// to produce a non-NaN float representing the "portion" of that total fitness the individual in
 /// question possesses. The easiest type that implements this is [`NotNan<f64>`].
+#[derive(Clone, Copy)]
 pub struct RouletteSelector;
 impl<I: Individual> ProbabilitySelector<I> for RouletteSelector
 where

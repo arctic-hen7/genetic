@@ -10,6 +10,7 @@ use rayon::iter::{IndexedParallelIterator, IntoParallelIterator, ParallelIterato
 ///
 /// This selector maintains no cross-generational state, and will run the tournament in the same
 /// way in every generation.
+#[derive(Clone)]
 pub struct TournamentSelector {
     tournament_size: usize,
 }
