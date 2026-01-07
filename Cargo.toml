@@ -13,7 +13,7 @@ ordered-float = "5.0.0"
 frunk = "0.4.3"
 plotters = { version = "0.3.7", optional = true }
 ahash = "0.8.12"
-lru = { version = "0.14.0", no-default-features = true }
+lru = { version = "0.16.3", no-default-features = true }
 
 [dev-dependencies]
 ordered-float = { version = "5.0.0", features = [ "rand" ] }
